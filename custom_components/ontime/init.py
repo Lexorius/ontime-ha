@@ -73,49 +73,54 @@ async def _async_register_services(hass: HomeAssistant, coordinator) -> None:
     
     async def handle_start(call: ServiceCall) -> None:
         """Handle start service."""
-        await coordinator.api_request("POST", "/playback/start")
+        await coordinator.api_request("GET", "/start")
     
     async def handle_pause(call: ServiceCall) -> None:
         """Handle pause service."""
-        await coordinator.api_request("POST", "/playback/pause")
+        await coordinator.api_request("GET", "/pause")
     
     async def handle_stop(call: ServiceCall) -> None:
         """Handle stop service."""
-        await coordinator.api_request("POST", "/playback/stop")
+        await coordinator.api_request("GET", "/stop")
     
     async def handle_reload(call: ServiceCall) -> None:
         """Handle reload service."""
-        await coordinator.api_request("POST", "/playback/reload")
+        await coordinator.api_request("GET", "/reload")
     
     async def handle_roll(call: ServiceCall) -> None:
         """Handle roll service."""
-        await coordinator.api_request("POST", "/playback/roll")
+        await coordinator.api_request("GET", "/roll")
     
     async def handle_load_event(call: ServiceCall) -> None:
         """Handle load event service."""
         event_id = call.data.get(ATTR_EVENT_ID)
-        await coordinator.api_request("POST", f"/playback/load/{event_id}")
+        await coordinator.api_request("GET", f"/load/id/{event_id}")
     
     async def handle_start_event(call: ServiceCall) -> None:
         """Handle start event service."""
         event_id = call.data.get(ATTR_EVENT_ID)
-        await coordinator.api_request("POST", f"/playback/start/{event_id}")
+        await coordinator.api_request("GET", f"/start/id/{event_id}")
     
     async def handle_add_time(call: ServiceCall) -> None:
         """Handle add time service."""
         time = call.data.get(ATTR_TIME)
-        direction = call.data.get(ATTR_DIRECTION, "both")
-        await coordinator.api_request("POST", f"/playback/addtime/{direction}/{time}")
+        direction = call.data.get(ATTR_DIRECTION, "add")
+        # Convert milliseconds to seconds for the API
+        time_seconds = time // 1000
+        if direction in ["remove", "subtract"]:
+            await coordinator.api_request("GET", f"/addtime/remove/{time_seconds}")
+        else:
+            await coordinator.api_request("GET", f"/addtime/add/{time_seconds}")
     
     async def handle_load_event_index(call: ServiceCall) -> None:
         """Handle load event by index service."""
         index = call.data.get(ATTR_EVENT_INDEX)
-        await coordinator.api_request("POST", f"/playback/loadindex/{index}")
+        await coordinator.api_request("GET", f"/load/index/{index}")
     
     async def handle_load_event_cue(call: ServiceCall) -> None:
         """Handle load event by cue service."""
         cue = call.data.get(ATTR_EVENT_CUE)
-        await coordinator.api_request("POST", f"/playback/loadcue/{cue}")
+        await coordinator.api_request("GET", f"/load/cue/{cue}")
     
     # Check if services are already registered
     if not hass.services.has_service(DOMAIN, SERVICE_START):
@@ -149,7 +154,7 @@ async def _async_register_services(hass: HomeAssistant, coordinator) -> None:
             handle_add_time,
             schema=vol.Schema({
                 vol.Required(ATTR_TIME): cv.positive_int,
-                vol.Optional(ATTR_DIRECTION): vol.In(["both", "start", "duration", "end"]),
+                vol.Optional(ATTR_DIRECTION): vol.In(["add", "remove", "subtract"]),
             })
         )
         
@@ -180,8 +185,10 @@ class OntimeDataUpdateCoordinator(DataUpdateCoordinator):
         self.entry = entry
         self.host = entry.data[CONF_HOST]
         self.port = entry.data[CONF_PORT]
-        self.base_url = f"http://{self.host}:{self.port}/api/v1"
+        # Verwende /api als Standard-Prefix (NICHT /api/v1)
+        self.base_url = f"http://{self.host}:{self.port}/api"
         self.session = async_get_clientsession(hass)
+        _LOGGER.info(f"Ontime coordinator initialized with base_url: {self.base_url}")
         
         super().__init__(
             hass,
@@ -205,35 +212,48 @@ class OntimeDataUpdateCoordinator(DataUpdateCoordinator):
         data = {}
         
         try:
-            # Get runtime state
-            runtime_response = await self.session.get(f"{self.base_url}/runtime")
-            runtime_response.raise_for_status()
-            runtime_data = await runtime_response.json()
-            data["runtime"] = runtime_data
+            # Get runtime state using /api/poll endpoint
+            poll_response = await self.session.get(f"{self.base_url}/poll")
+            poll_response.raise_for_status()
+            poll_data = await poll_response.json()
             
-            # Get timer data
-            timer_response = await self.session.get(f"{self.base_url}/timer")
-            timer_response.raise_for_status()
-            timer_data = await timer_response.json()
-            data["timer"] = timer_data
+            # Extract runtime data from payload
+            if "payload" in poll_data:
+                runtime_data = poll_data["payload"]
+                data["runtime"] = runtime_data
+                
+                # Extract timer information
+                if "timer" in runtime_data:
+                    data["timer"] = runtime_data["timer"]
+                
+                # Extract current event information
+                if "eventNow" in runtime_data:
+                    data["current_event"] = runtime_data["eventNow"]
+                elif "currentEvent" in runtime_data:
+                    data["current_event"] = runtime_data["currentEvent"]
+                
+                # Check for negative timer (overtime)
+                if "timer" in runtime_data and runtime_data["timer"]:
+                    timer_data = runtime_data["timer"]
+                    current_time = timer_data.get("current", 0)
+                    data["is_overtime"] = current_time < 0
+                    data["overtime_seconds"] = abs(current_time) // 1000 if current_time < 0 else 0
+                
+                # Extract playback state
+                if "playback" in runtime_data:
+                    data["playback"] = runtime_data["playback"]
             
-            # Get current event if available
-            if runtime_data.get("selectedEventId"):
-                try:
-                    event_response = await self.session.get(
-                        f"{self.base_url}/events/{runtime_data['selectedEventId']}"
-                    )
-                    if event_response.status == 200:
-                        data["current_event"] = await event_response.json()
-                except:
-                    pass  # Event might not exist
-            
-            # Check for negative timer (overtime)
-            if timer_data.get("current") is not None:
-                current_time = timer_data["current"]
-                data["is_overtime"] = current_time < 0
-                data["overtime_seconds"] = abs(current_time) // 1000 if current_time < 0 else 0
-            
+            # Try to get additional data
+            try:
+                # Get rundown data if needed
+                rundown_response = await self.session.get(f"{self.base_url}/data/rundown")
+                if rundown_response.status == 200:
+                    rundown_data = await rundown_response.json()
+                    if "payload" in rundown_data:
+                        data["rundown"] = rundown_data["payload"]
+            except:
+                pass  # Optional data
+                
         except aiohttp.ClientError as err:
             _LOGGER.error(f"Error fetching data: {err}")
             raise UpdateFailed(f"Error fetching data: {err}")
@@ -259,8 +279,10 @@ class OntimeDataUpdateCoordinator(DataUpdateCoordinator):
                 
                 response.raise_for_status()
                 
+                # Ontime API returns JSON with payload wrapper
                 if response.content_length and response.content_length > 0:
-                    return await response.json()
+                    result = await response.json()
+                    return result.get("payload", result)
                 return None
                 
         except aiohttp.ClientError as err:
