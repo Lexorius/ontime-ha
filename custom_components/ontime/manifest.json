@@ -1,0 +1,14 @@
+{
+  "domain": "ontime",
+  "name": "Ontime Timer Control",
+  "codeowners": ["@Lexorius"],
+  "config_flow": true,
+  "dependencies": [],
+  "documentation": "https://github.com/Lexorius/ontime-ha",
+  "issue_tracker": "https://github.com/Lexorius/ontime-ha/issues",
+  "iot_class": "local_polling",
+  "requirements": ["aiohttp>=3.8.0"],
+  "version": "1.0.0",
+  "integration_type": "device",
+  "loggers": ["ontime"]
+}
