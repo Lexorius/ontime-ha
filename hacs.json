@@ -1,0 +1,10 @@
+{
+  "name": "Ontime Timer Control",
+  "content_in_root": false,
+  "render_readme": true,
+  "homeassistant": "2023.1.0",
+  "domains": ["sensor"],
+  "iot_class": "Local Polling",
+  "zip_release": true,
+  "filename": "ontime-ha.zip"
+}
