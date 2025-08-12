@@ -1,4 +1,6 @@
 """The Ontime integration."""
+from __future__ import annotations
+
 import asyncio
 import logging
 from datetime import timedelta
@@ -9,7 +11,7 @@ import async_timeout
 import voluptuous as vol
 
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import Platform
+from homeassistant.const import CONF_HOST, CONF_PORT, Platform
 from homeassistant.core import HomeAssistant, ServiceCall
 from homeassistant.exceptions import ConfigEntryNotReady
 from homeassistant.helpers import config_validation as cv
@@ -115,57 +117,59 @@ async def _async_register_services(hass: HomeAssistant, coordinator) -> None:
         cue = call.data.get(ATTR_EVENT_CUE)
         await coordinator.api_request("POST", f"/playback/loadcue/{cue}")
     
-    hass.services.async_register(DOMAIN, SERVICE_START, handle_start)
-    hass.services.async_register(DOMAIN, SERVICE_PAUSE, handle_pause)
-    hass.services.async_register(DOMAIN, SERVICE_STOP, handle_stop)
-    hass.services.async_register(DOMAIN, SERVICE_RELOAD, handle_reload)
-    hass.services.async_register(DOMAIN, SERVICE_ROLL, handle_roll)
-    
-    hass.services.async_register(
-        DOMAIN, 
-        SERVICE_LOAD_EVENT, 
-        handle_load_event,
-        schema=vol.Schema({
-            vol.Required(ATTR_EVENT_ID): cv.string,
-        })
-    )
-    
-    hass.services.async_register(
-        DOMAIN,
-        SERVICE_START_EVENT,
-        handle_start_event,
-        schema=vol.Schema({
-            vol.Required(ATTR_EVENT_ID): cv.string,
-        })
-    )
-    
-    hass.services.async_register(
-        DOMAIN,
-        SERVICE_ADD_TIME,
-        handle_add_time,
-        schema=vol.Schema({
-            vol.Required(ATTR_TIME): cv.positive_int,
-            vol.Optional(ATTR_DIRECTION): vol.In(["both", "start", "duration", "end"]),
-        })
-    )
-    
-    hass.services.async_register(
-        DOMAIN,
-        SERVICE_LOAD_EVENT_INDEX,
-        handle_load_event_index,
-        schema=vol.Schema({
-            vol.Required(ATTR_EVENT_INDEX): cv.positive_int,
-        })
-    )
-    
-    hass.services.async_register(
-        DOMAIN,
-        SERVICE_LOAD_EVENT_CUE,
-        handle_load_event_cue,
-        schema=vol.Schema({
-            vol.Required(ATTR_EVENT_CUE): cv.string,
-        })
-    )
+    # Check if services are already registered
+    if not hass.services.has_service(DOMAIN, SERVICE_START):
+        hass.services.async_register(DOMAIN, SERVICE_START, handle_start)
+        hass.services.async_register(DOMAIN, SERVICE_PAUSE, handle_pause)
+        hass.services.async_register(DOMAIN, SERVICE_STOP, handle_stop)
+        hass.services.async_register(DOMAIN, SERVICE_RELOAD, handle_reload)
+        hass.services.async_register(DOMAIN, SERVICE_ROLL, handle_roll)
+        
+        hass.services.async_register(
+            DOMAIN, 
+            SERVICE_LOAD_EVENT, 
+            handle_load_event,
+            schema=vol.Schema({
+                vol.Required(ATTR_EVENT_ID): cv.string,
+            })
+        )
+        
+        hass.services.async_register(
+            DOMAIN,
+            SERVICE_START_EVENT,
+            handle_start_event,
+            schema=vol.Schema({
+                vol.Required(ATTR_EVENT_ID): cv.string,
+            })
+        )
+        
+        hass.services.async_register(
+            DOMAIN,
+            SERVICE_ADD_TIME,
+            handle_add_time,
+            schema=vol.Schema({
+                vol.Required(ATTR_TIME): cv.positive_int,
+                vol.Optional(ATTR_DIRECTION): vol.In(["both", "start", "duration", "end"]),
+            })
+        )
+        
+        hass.services.async_register(
+            DOMAIN,
+            SERVICE_LOAD_EVENT_INDEX,
+            handle_load_event_index,
+            schema=vol.Schema({
+                vol.Required(ATTR_EVENT_INDEX): cv.positive_int,
+            })
+        )
+        
+        hass.services.async_register(
+            DOMAIN,
+            SERVICE_LOAD_EVENT_CUE,
+            handle_load_event_cue,
+            schema=vol.Schema({
+                vol.Required(ATTR_EVENT_CUE): cv.string,
+            })
+        )
 
 
 class OntimeDataUpdateCoordinator(DataUpdateCoordinator):
@@ -174,8 +178,8 @@ class OntimeDataUpdateCoordinator(DataUpdateCoordinator):
     def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
         """Initialize."""
         self.entry = entry
-        self.host = entry.data["host"]
-        self.port = entry.data["port"]
+        self.host = entry.data[CONF_HOST]
+        self.port = entry.data[CONF_PORT]
         self.base_url = f"http://{self.host}:{self.port}/api/v1"
         self.session = async_get_clientsession(hass)
         
@@ -193,34 +197,46 @@ class OntimeDataUpdateCoordinator(DataUpdateCoordinator):
                 return await self._fetch_data()
         except aiohttp.ClientError as err:
             raise UpdateFailed(f"Error communicating with API: {err}")
+        except Exception as err:
+            raise UpdateFailed(f"Unexpected error: {err}")
     
     async def _fetch_data(self):
         """Fetch all relevant data from Ontime API."""
         data = {}
         
-        # Get runtime state
-        runtime_response = await self.session.get(f"{self.base_url}/runtime")
-        runtime_data = await runtime_response.json()
-        data["runtime"] = runtime_data
-        
-        # Get timer data
-        timer_response = await self.session.get(f"{self.base_url}/timer")
-        timer_data = await timer_response.json()
-        data["timer"] = timer_data
-        
-        # Get current event
-        if runtime_data.get("selectedEventId"):
-            event_response = await self.session.get(
-                f"{self.base_url}/events/{runtime_data['selectedEventId']}"
-            )
-            if event_response.status == 200:
-                data["current_event"] = await event_response.json()
-        
-        # Check for negative timer (overtime)
-        if timer_data.get("current") is not None:
-            current_time = timer_data["current"]
-            data["is_overtime"] = current_time < 0
-            data["overtime_seconds"] = abs(current_time) if current_time < 0 else 0
+        try:
+            # Get runtime state
+            runtime_response = await self.session.get(f"{self.base_url}/runtime")
+            runtime_response.raise_for_status()
+            runtime_data = await runtime_response.json()
+            data["runtime"] = runtime_data
+            
+            # Get timer data
+            timer_response = await self.session.get(f"{self.base_url}/timer")
+            timer_response.raise_for_status()
+            timer_data = await timer_response.json()
+            data["timer"] = timer_data
+            
+            # Get current event if available
+            if runtime_data.get("selectedEventId"):
+                try:
+                    event_response = await self.session.get(
+                        f"{self.base_url}/events/{runtime_data['selectedEventId']}"
+                    )
+                    if event_response.status == 200:
+                        data["current_event"] = await event_response.json()
+                except:
+                    pass  # Event might not exist
+            
+            # Check for negative timer (overtime)
+            if timer_data.get("current") is not None:
+                current_time = timer_data["current"]
+                data["is_overtime"] = current_time < 0
+                data["overtime_seconds"] = abs(current_time) // 1000 if current_time < 0 else 0
+            
+        except aiohttp.ClientError as err:
+            _LOGGER.error(f"Error fetching data: {err}")
+            raise UpdateFailed(f"Error fetching data: {err}")
         
         return data
     
@@ -242,8 +258,14 @@ class OntimeDataUpdateCoordinator(DataUpdateCoordinator):
                     raise ValueError(f"Unsupported method: {method}")
                 
                 response.raise_for_status()
-                return await response.json() if response.content_length else None
+                
+                if response.content_length and response.content_length > 0:
+                    return await response.json()
+                return None
                 
         except aiohttp.ClientError as err:
-            _LOGGER.error(f"Error making API request: {err}")
+            _LOGGER.error(f"Error making API request to {endpoint}: {err}")
+            raise
+        except Exception as err:
+            _LOGGER.error(f"Unexpected error in API request: {err}")
             raise
