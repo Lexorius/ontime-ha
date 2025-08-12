@@ -1,0 +1,90 @@
+start:
+  name: Start Timer
+  description: Start the Ontime timer
+
+pause:
+  name: Pause Timer
+  description: Pause the Ontime timer
+
+stop:
+  name: Stop Timer
+  description: Stop the Ontime timer
+
+reload:
+  name: Reload
+  description: Reload the Ontime rundown
+
+roll:
+  name: Roll
+  description: Roll to the next event
+
+load_event:
+  name: Load Event
+  description: Load a specific event by ID
+  fields:
+    event_id:
+      name: Event ID
+      description: The ID of the event to load
+      required: true
+      selector:
+        text:
+
+start_event:
+  name: Start Event
+  description: Load and start a specific event by ID
+  fields:
+    event_id:
+      name: Event ID
+      description: The ID of the event to start
+      required: true
+      selector:
+        text:
+
+add_time:
+  name: Add Time
+  description: Add or subtract time from the timer
+  fields:
+    time:
+      name: Time
+      description: Time to add in milliseconds (negative to subtract)
+      required: true
+      selector:
+        number:
+          min: -3600000
+          max: 3600000
+    direction:
+      name: Direction
+      description: Which timer property to modify
+      required: false
+      default: both
+      selector:
+        select:
+          options:
+            - both
+            - start
+            - duration
+            - end
+
+load_event_index:
+  name: Load Event by Index
+  description: Load an event by its index in the rundown
+  fields:
+    event_index:
+      name: Event Index
+      description: The index of the event to load
+      required: true
+      selector:
+        number:
+          min: 0
+          max: 1000
+
+load_event_cue:
+  name: Load Event by Cue
+  description: Load an event by its cue name
+  fields:
+    event_cue:
+      name: Event Cue
+      description: The cue name of the event to load
+      required: true
+      selector:
+        text:
