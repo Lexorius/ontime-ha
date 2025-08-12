@@ -1,3 +1,4 @@
+"""Constants for the Ontime integration."""
 from datetime import timedelta
 
 DOMAIN = "ontime"
@@ -5,6 +6,7 @@ DEFAULT_NAME = "Ontime"
 DEFAULT_PORT = 4001
 DEFAULT_SCAN_INTERVAL = timedelta(seconds=1)
 
+# Configuration
 CONF_HOST = "host"
 CONF_PORT = "port"
 
