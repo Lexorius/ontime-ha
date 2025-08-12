@@ -35,7 +35,8 @@ class OntimeHub:
         self.host = host
         self.port = port
         self.session = session
-        self.base_url = f"http://{host}:{port}/api/v1"
+        # WICHTIG: Kein /api/v1 Prefix - Ontime nutzt direkte Pfade!
+        self.base_url = f"http://{host}:{port}"
         self.info = {}
 
     async def authenticate(self) -> bool:
@@ -45,16 +46,43 @@ class OntimeHub:
     async def _test_connection(self) -> bool:
         """Test connection to Ontime API."""
         try:
-            async with self.session.get(
-                f"{self.base_url}/info",
-                timeout=aiohttp.ClientTimeout(total=10)
-            ) as response:
-                if response.status == 200:
-                    self.info = await response.json()
-                    return True
-                return False
-        except (aiohttp.ClientError, TimeoutError):
+            # Versuche verschiedene Endpoints
+            test_endpoints = [
+                "/api/info",           # Neuer API Pfad
+                "/api/v1/info",        # Alter API Pfad
+                "/info",               # Direkter Pfad
+                "/api/runtime",        # Runtime endpoint
+                "/api/v1/runtime"      # Alter runtime
+            ]
+            
+            for endpoint in test_endpoints:
+                try:
+                    _LOGGER.debug(f"Testing endpoint: {self.base_url}{endpoint}")
+                    async with self.session.get(
+                        f"{self.base_url}{endpoint}",
+                        timeout=aiohttp.ClientTimeout(total=5)
+                    ) as response:
+                        if response.status == 200:
+                            # Speichere welcher Endpoint funktioniert hat
+                            if "v1" in endpoint:
+                                self.api_prefix = "/api/v1"
+                            elif "/api/" in endpoint:
+                                self.api_prefix = "/api"
+                            else:
+                                self.api_prefix = ""
+                            
+                            _LOGGER.info(f"Successfully connected using endpoint: {endpoint}")
+                            
+                            # Versuche Info zu holen
+                            if "info" in endpoint:
+                                self.info = await response.json()
+                            return True
+                except Exception as e:
+                    _LOGGER.debug(f"Endpoint {endpoint} failed: {e}")
+                    continue
+            
             return False
+            
         except Exception as err:
             _LOGGER.error(f"Unexpected error testing connection: {err}")
             return False
@@ -62,14 +90,19 @@ class OntimeHub:
     async def get_info(self) -> dict:
         """Get Ontime server information."""
         try:
+            # Nutze den gefundenen API prefix
+            api_prefix = getattr(self, 'api_prefix', '/api')
+            info_endpoint = f"{api_prefix}/info" if api_prefix else "/info"
+            
             async with self.session.get(
-                f"{self.base_url}/info",
+                f"{self.base_url}{info_endpoint}",
                 timeout=aiohttp.ClientTimeout(total=10)
             ) as response:
                 if response.status == 200:
                     return await response.json()
                 return {}
-        except Exception:
+        except Exception as err:
+            _LOGGER.error(f"Error getting info: {err}")
             return {}
 
 
@@ -87,10 +120,14 @@ async def validate_input(hass: HomeAssistant, data: dict[str, Any]) -> dict[str,
     # Get server info for the title
     info = await hub.get_info()
     
+    # Speichere den API prefix in den Daten
+    api_prefix = getattr(hub, 'api_prefix', '/api')
+    
     # Return info that you want to store in the config entry.
     return {
         "title": f"Ontime {info.get('version', 'Server')}",
-        "info": info
+        "info": info,
+        "api_prefix": api_prefix
     }
 
 
@@ -98,7 +135,6 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     """Handle a config flow for Ontime."""
 
     VERSION = 1
-    # Pick one of the available connection classes in homeassistant/config_entries.py
     CONNECTION_CLASS = config_entries.CONN_CLASS_LOCAL_POLL
 
     def __init__(self):
@@ -133,6 +169,9 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             unique_id = f"{user_input[CONF_HOST]}:{user_input[CONF_PORT]}"
             await self.async_set_unique_id(unique_id)
             self._abort_if_unique_id_configured()
+
+            # Füge den API prefix zu den config daten hinzu
+            user_input["api_prefix"] = info.get("api_prefix", "/api")
 
             # Create the config entry
             return self.async_create_entry(
@@ -177,6 +216,9 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             _LOGGER.exception("Unexpected exception")
             errors["base"] = "unknown"
         else:
+            # Füge den API prefix zu den config daten hinzu
+            user_input["api_prefix"] = info.get("api_prefix", "/api")
+            
             # Update the existing entry
             self.hass.config_entries.async_update_entry(
                 entry, data=user_input, title=info["title"]
