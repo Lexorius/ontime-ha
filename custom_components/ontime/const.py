@@ -1,14 +1,12 @@
-"""Constants for the Ontime integration."""
 from datetime import timedelta
 
+# Domain
 DOMAIN = "ontime"
+
+# Default values
 DEFAULT_NAME = "Ontime"
 DEFAULT_PORT = 4001
 DEFAULT_SCAN_INTERVAL = timedelta(seconds=1)
-
-# Configuration
-CONF_HOST = "host"
-CONF_PORT = "port"
 
 # Services
 SERVICE_START = "start"
@@ -22,9 +20,13 @@ SERVICE_ADD_TIME = "add_time"
 SERVICE_LOAD_EVENT_INDEX = "load_event_index"
 SERVICE_LOAD_EVENT_CUE = "load_event_cue"
 
-# Attributes
+# Service Attributes
 ATTR_EVENT_ID = "event_id"
 ATTR_EVENT_INDEX = "event_index"
 ATTR_EVENT_CUE = "event_cue"
 ATTR_TIME = "time"
 ATTR_DIRECTION = "direction"
+
+# Data keys
+DATA_COORDINATOR = "coordinator"
+DATA_UNDO_UPDATE_LISTENER = "undo_update_listener"
