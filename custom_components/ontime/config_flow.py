@@ -46,13 +46,10 @@ class OntimeHub:
     async def _test_connection(self) -> bool:
         """Test connection to Ontime API."""
         try:
-            # Versuche verschiedene Endpoints
+            # Teste die korrekte Ontime API
             test_endpoints = [
-                "/api/info",           # Neuer API Pfad
-                "/api/v1/info",        # Alter API Pfad
-                "/info",               # Direkter Pfad
-                "/api/runtime",        # Runtime endpoint
-                "/api/v1/runtime"      # Alter runtime
+                "/api/version",        # Version endpoint
+                "/api/poll",           # Poll endpoint für runtime data
             ]
             
             for endpoint in test_endpoints:
@@ -63,20 +60,13 @@ class OntimeHub:
                         timeout=aiohttp.ClientTimeout(total=5)
                     ) as response:
                         if response.status == 200:
-                            # Speichere welcher Endpoint funktioniert hat
-                            if "v1" in endpoint:
-                                self.api_prefix = "/api/v1"
-                            elif "/api/" in endpoint:
-                                self.api_prefix = "/api"
-                            else:
-                                self.api_prefix = ""
-                            
-                            _LOGGER.info(f"Successfully connected using endpoint: {endpoint}")
-                            
-                            # Versuche Info zu holen
-                            if "info" in endpoint:
-                                self.info = await response.json()
-                            return True
+                            data = await response.json()
+                            # Ontime API returns data in payload wrapper
+                            if "payload" in data:
+                                if "version" in endpoint:
+                                    self.info = {"version": data["payload"]}
+                                _LOGGER.info(f"Successfully connected to Ontime using endpoint: {endpoint}")
+                                return True
                 except Exception as e:
                     _LOGGER.debug(f"Endpoint {endpoint} failed: {e}")
                     continue
@@ -90,16 +80,14 @@ class OntimeHub:
     async def get_info(self) -> dict:
         """Get Ontime server information."""
         try:
-            # Nutze den gefundenen API prefix
-            api_prefix = getattr(self, 'api_prefix', '/api')
-            info_endpoint = f"{api_prefix}/info" if api_prefix else "/info"
-            
+            # Get version info
             async with self.session.get(
-                f"{self.base_url}{info_endpoint}",
+                f"{self.base_url}/api/version",
                 timeout=aiohttp.ClientTimeout(total=10)
             ) as response:
                 if response.status == 200:
-                    return await response.json()
+                    data = await response.json()
+                    return {"version": data.get("payload", "Unknown")}
                 return {}
         except Exception as err:
             _LOGGER.error(f"Error getting info: {err}")
