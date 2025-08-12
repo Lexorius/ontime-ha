@@ -2,21 +2,146 @@
   "config": {
     "step": {
       "user": {
-        "title": "Configure Ontime",
-        "description": "Enter the connection details for your Ontime server",
+        "title": "Connect to Ontime Server",
+        "description": "Set up Ontime integration to control and monitor your timer system.",
         "data": {
-          "host": "Host",
+          "host": "Host (IP Address or Hostname)",
+          "port": "Port"
+        },
+        "data_description": {
+          "host": "The IP address or hostname of your Ontime server",
+          "port": "The API port of your Ontime server (default: 4001)"
+        }
+      },
+      "reconfigure": {
+        "title": "Reconfigure Ontime Server",
+        "description": "Update the connection settings for your Ontime server.",
+        "data": {
+          "host": "Host (IP Address or Hostname)",
           "port": "Port"
         }
       }
     },
     "error": {
-      "cannot_connect": "Failed to connect to Ontime server",
-      "invalid_host": "Invalid hostname or IP address",
-      "unknown": "Unexpected error"
+      "cannot_connect": "Failed to connect to Ontime server. Please check the host and port.",
+      "invalid_auth": "Invalid authentication",
+      "unknown": "Unexpected error occurred"
     },
     "abort": {
-      "already_configured": "Device is already configured"
+      "already_configured": "This Ontime server is already configured",
+      "reconfigure_successful": "Re-configuration was successful"
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Ontime Options",
+        "description": "Configure Ontime integration options",
+        "data": {
+          "scan_interval": "Update interval (seconds)"
+        }
+      }
+    }
+  },
+  "device": {
+    "name": "Ontime Timer System"
+  },
+  "entity": {
+    "sensor": {
+      "timer": {
+        "name": "Timer"
+      },
+      "playback_state": {
+        "name": "Playback State"
+      },
+      "current_event": {
+        "name": "Current Event"
+      },
+      "overtime": {
+        "name": "Overtime"
+      },
+      "elapsed": {
+        "name": "Elapsed Time"
+      },
+      "expected_end": {
+        "name": "Expected End"
+      }
+    }
+  },
+  "services": {
+    "start": {
+      "name": "Start",
+      "description": "Start the Ontime timer"
+    },
+    "pause": {
+      "name": "Pause",
+      "description": "Pause the Ontime timer"
+    },
+    "stop": {
+      "name": "Stop",
+      "description": "Stop the Ontime timer"
+    },
+    "reload": {
+      "name": "Reload",
+      "description": "Reload the Ontime rundown"
+    },
+    "roll": {
+      "name": "Roll",
+      "description": "Roll to the next event"
+    },
+    "load_event": {
+      "name": "Load Event",
+      "description": "Load a specific event by ID",
+      "fields": {
+        "event_id": {
+          "name": "Event ID",
+          "description": "The ID of the event to load"
+        }
+      }
+    },
+    "start_event": {
+      "name": "Start Event",
+      "description": "Load and start a specific event by ID",
+      "fields": {
+        "event_id": {
+          "name": "Event ID",
+          "description": "The ID of the event to start"
+        }
+      }
+    },
+    "add_time": {
+      "name": "Add Time",
+      "description": "Add or subtract time from the timer",
+      "fields": {
+        "time": {
+          "name": "Time",
+          "description": "Time to add in milliseconds (negative to subtract)"
+        },
+        "direction": {
+          "name": "Direction",
+          "description": "Which timer property to modify (both, start, duration, or end)"
+        }
+      }
+    },
+    "load_event_index": {
+      "name": "Load Event by Index",
+      "description": "Load an event by its index in the rundown",
+      "fields": {
+        "event_index": {
+          "name": "Event Index",
+          "description": "The index of the event to load"
+        }
+      }
+    },
+    "load_event_cue": {
+      "name": "Load Event by Cue",
+      "description": "Load an event by its cue name",
+      "fields": {
+        "event_cue": {
+          "name": "Event Cue",
+          "description": "The cue name of the event to load"
+        }
+      }
     }
   }
 }
