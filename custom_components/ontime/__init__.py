@@ -234,6 +234,16 @@ class OntimeDataUpdateCoordinator(DataUpdateCoordinator):
                     elif "currentEvent" in runtime_data:
                         data["current_event"] = runtime_data["currentEvent"]
                     
+                    # Extract next event information
+                    if "eventNext" in runtime_data:
+                        data["next_event"] = runtime_data["eventNext"]
+                    elif "nextEvent" in runtime_data:
+                        data["next_event"] = runtime_data["nextEvent"]
+                    
+                    # Extract public next event (if different)
+                    if "publicEventNext" in runtime_data:
+                        data["public_next_event"] = runtime_data["publicEventNext"]
+                    
                     # Check for negative timer (overtime)
                     if "timer" in runtime_data and runtime_data["timer"]:
                         timer_data = runtime_data["timer"]
@@ -249,15 +259,39 @@ class OntimeDataUpdateCoordinator(DataUpdateCoordinator):
             else:
                 _LOGGER.warning(f"Unexpected status code from poll endpoint: {poll_response.status}")
             
-            # Try to get additional data
+            # Try to get additional data - rundown for more event details
             try:
-                # Get rundown data if needed
                 rundown_response = await self.session.get(f"{self.base_url}/data/rundown")
                 if rundown_response.status in [200, 202]:
                     rundown_data = await rundown_response.json()
                     if "payload" in rundown_data:
                         data["rundown"] = rundown_data["payload"]
-            except:
+                        
+                        # Find next events in rundown if not already found
+                        if "rundown" in data and isinstance(data["rundown"], list):
+                            events = data["rundown"]
+                            current_id = None
+                            
+                            # Get current event ID
+                            if data.get("current_event") and data["current_event"]:
+                                current_id = data["current_event"].get("id")
+                            elif data.get("runtime", {}).get("selectedEventId"):
+                                current_id = data["runtime"]["selectedEventId"]
+                            
+                            # Find current and next events
+                            if current_id:
+                                found_current = False
+                                for event in events:
+                                    if event.get("type") == "event":  # Skip non-events like blocks
+                                        if found_current and not event.get("skip", False):
+                                            # This is the next non-skipped event
+                                            if "next_event" not in data:
+                                                data["next_event"] = event
+                                            break
+                                        if event.get("id") == current_id:
+                                            found_current = True
+            except Exception as e:
+                _LOGGER.debug(f"Could not fetch rundown data: {e}")
                 pass  # Optional data
                 
         except aiohttp.ClientError as err:
