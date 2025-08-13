@@ -1,3 +1,4 @@
+"""Constants for the Ontime integration."""
 from datetime import timedelta
 
 # Domain
@@ -14,6 +15,8 @@ SERVICE_PAUSE = "pause"
 SERVICE_STOP = "stop"
 SERVICE_RELOAD = "reload"
 SERVICE_ROLL = "roll"
+SERVICE_NEXT = "next"
+SERVICE_PREVIOUS = "previous"
 SERVICE_LOAD_EVENT = "load_event"
 SERVICE_START_EVENT = "start_event"
 SERVICE_ADD_TIME = "add_time"
