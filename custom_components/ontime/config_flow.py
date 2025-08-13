@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import socket
 from typing import Any
 
 import aiohttp
@@ -40,65 +41,135 @@ class OntimeHub:
 
     async def authenticate(self) -> bool:
         """Test if we can authenticate with the host."""
+        # Erst mal testen ob der Host überhaupt erreichbar ist
+        _LOGGER.info(f"Testing network connectivity to {self.host}:{self.port}")
+        
+        try:
+            # DNS Test
+            ip = socket.gethostbyname(self.host)
+            _LOGGER.info(f"DNS resolved {self.host} to {ip}")
+        except socket.gaierror as e:
+            _LOGGER.error(f"DNS resolution failed for {self.host}: {e}")
+        except Exception as e:
+            _LOGGER.error(f"Unexpected error in DNS resolution: {e}")
+        
+        # Socket Test
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.settimeout(5)
+        try:
+            result = sock.connect_ex((self.host, self.port))
+            if result == 0:
+                _LOGGER.info(f"Socket connection successful to {self.host}:{self.port}")
+            else:
+                _LOGGER.error(f"Socket connection failed to {self.host}:{self.port} with error code: {result}")
+        except Exception as e:
+            _LOGGER.error(f"Socket test failed: {e}")
+        finally:
+            sock.close()
+        
         return await self._test_connection()
 
     async def _test_connection(self) -> bool:
         """Test connection to Ontime API."""
-        _LOGGER.info(f"Starting connection test to {self.base_url}")
+        _LOGGER.info(f"Starting HTTP connection test to {self.base_url}")
         
-        # Teste die korrekte Ontime API
-        test_endpoints = [
-            "/api/version",
-            "/api/poll",
+        # Teste verschiedene Endpoints und Methoden
+        test_configs = [
+            {"endpoint": "/api/version", "headers": {}},
+            {"endpoint": "/api/poll", "headers": {}},
+            {"endpoint": "/api/version", "headers": {"User-Agent": "Home-Assistant"}},
+            {"endpoint": "/api/version", "headers": {"Accept": "application/json", "User-Agent": "Mozilla/5.0"}},
         ]
         
-        for endpoint in test_endpoints:
+        for config in test_configs:
+            endpoint = config["endpoint"]
+            headers = config["headers"]
             full_url = f"{self.base_url}{endpoint}"
-            _LOGGER.info(f"Testing endpoint: {full_url}")
+            _LOGGER.info(f"Testing: {full_url} with headers: {headers}")
             
             try:
+                # Verschiedene Timeout-Werte probieren
+                timeout = aiohttp.ClientTimeout(
+                    total=30,
+                    connect=10,
+                    sock_connect=10,
+                    sock_read=10
+                )
+                
                 async with self.session.get(
                     full_url,
-                    timeout=aiohttp.ClientTimeout(total=10),
-                    headers={"Accept": "application/json"}
+                    timeout=timeout,
+                    headers=headers,
+                    ssl=False,  # SSL deaktivieren falls das ein Problem ist
+                    allow_redirects=True
                 ) as response:
                     _LOGGER.info(f"Response status from {endpoint}: {response.status}")
+                    _LOGGER.info(f"Response headers: {response.headers}")
                     
                     if response.status == 200:
                         try:
-                            data = await response.json()
-                            _LOGGER.info(f"Response data from {endpoint}: {data}")
+                            # Versuche verschiedene Parsing-Methoden
+                            content_type = response.headers.get('Content-Type', '')
+                            _LOGGER.info(f"Content-Type: {content_type}")
                             
-                            # Ontime API returns data in payload wrapper
-                            if "payload" in data:
-                                if "version" in endpoint:
-                                    self.info = {"version": data["payload"]}
-                                _LOGGER.info(f"Successfully connected to Ontime! Version: {data.get('payload', 'unknown')}")
-                                return True
-                            else:
-                                _LOGGER.warning(f"No 'payload' in response from {endpoint}")
-                        except Exception as json_err:
-                            _LOGGER.error(f"Error parsing JSON from {endpoint}: {json_err}")
                             text = await response.text()
-                            _LOGGER.error(f"Response text: {text}")
+                            _LOGGER.info(f"Response text (first 500 chars): {text[:500]}")
+                            
+                            # Versuche JSON zu parsen
+                            try:
+                                import json
+                                data = json.loads(text)
+                                _LOGGER.info(f"Parsed JSON successfully: {data}")
+                                
+                                # Ontime API returns data in payload wrapper
+                                if "payload" in data:
+                                    if "version" in endpoint:
+                                        self.info = {"version": data["payload"]}
+                                    _LOGGER.info(f"Successfully connected to Ontime!")
+                                    return True
+                                elif isinstance(data, str):
+                                    # Manchmal ist die Response direkt ein String
+                                    self.info = {"version": data}
+                                    _LOGGER.info(f"Successfully connected to Ontime (direct string response)!")
+                                    return True
+                            except json.JSONDecodeError as e:
+                                _LOGGER.error(f"JSON decode error: {e}")
+                                # Vielleicht ist es plain text?
+                                if text and len(text) < 20:  # Kurzer Text könnte Version sein
+                                    self.info = {"version": text.strip()}
+                                    _LOGGER.info(f"Using plain text response as version: {text.strip()}")
+                                    return True
+                                
+                        except Exception as e:
+                            _LOGGER.error(f"Error processing response: {e}")
                     else:
                         text = await response.text()
-                        _LOGGER.warning(f"Non-200 response from {endpoint}: {response.status}, text: {text}")
+                        _LOGGER.warning(f"Non-200 response: Status={response.status}, Text={text[:200]}")
                         
-            except aiohttp.ClientConnectorError as conn_err:
-                _LOGGER.error(f"Connection error to {full_url}: {conn_err}")
-            except aiohttp.ClientError as client_err:
-                _LOGGER.error(f"Client error for {full_url}: {client_err}")
+            except aiohttp.ClientConnectorError as e:
+                _LOGGER.error(f"ClientConnectorError for {full_url}: {e}")
+                _LOGGER.error(f"  Error type: {type(e).__name__}")
+                _LOGGER.error(f"  OS Error: {e.os_error if hasattr(e, 'os_error') else 'N/A'}")
+            except aiohttp.ServerTimeoutError as e:
+                _LOGGER.error(f"ServerTimeoutError for {full_url}: {e}")
+            except aiohttp.ClientError as e:
+                _LOGGER.error(f"ClientError for {full_url}: {e}")
+            except asyncio.TimeoutError as e:
+                _LOGGER.error(f"AsyncIO TimeoutError for {full_url}: {e}")
             except Exception as e:
                 _LOGGER.error(f"Unexpected error for {full_url}: {type(e).__name__}: {e}")
+                import traceback
+                _LOGGER.error(f"Traceback: {traceback.format_exc()}")
         
         _LOGGER.error(f"All connection attempts failed for {self.base_url}")
         return False
 
     async def get_info(self) -> dict:
         """Get Ontime server information."""
+        if self.info:
+            return self.info
+            
         try:
-            # Get version info
             url = f"{self.base_url}/api/version"
             _LOGGER.info(f"Getting version info from: {url}")
             
@@ -107,20 +178,27 @@ class OntimeHub:
                 timeout=aiohttp.ClientTimeout(total=10)
             ) as response:
                 if response.status == 200:
-                    data = await response.json()
-                    version = data.get("payload", "Unknown")
+                    text = await response.text()
+                    try:
+                        import json
+                        data = json.loads(text)
+                        version = data.get("payload", data) if isinstance(data, dict) else data
+                    except:
+                        version = text.strip()
+                    
                     _LOGGER.info(f"Got version: {version}")
                     return {"version": version}
                 else:
                     _LOGGER.error(f"Failed to get version, status: {response.status}")
-                    return {}
+                    return {"version": "Unknown"}
         except Exception as err:
             _LOGGER.error(f"Error getting info: {err}")
-            return {}
+            return {"version": "Unknown"}
 
 
 async def validate_input(hass: HomeAssistant, data: dict[str, Any]) -> dict[str, Any]:
     """Validate the user input allows us to connect."""
+    import asyncio
     _LOGGER.info(f"Validating input - Host: {data[CONF_HOST]}, Port: {data[CONF_PORT]}")
     
     session = async_get_clientsession(hass)
