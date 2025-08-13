@@ -75,33 +75,67 @@ async def _async_register_services(hass: HomeAssistant, coordinator) -> None:
     
     async def handle_start(call: ServiceCall) -> None:
         """Handle start service."""
-        await coordinator.api_request("GET", "/start")
+        try:
+            # Prüfe ob ein Event geladen ist
+            if coordinator.data and coordinator.data.get("runtime", {}).get("selectedEventId"):
+                await coordinator.api_request("GET", "/start")
+            else:
+                # Versuche das erste Event zu laden und zu starten
+                _LOGGER.info("No event selected, trying to start first event")
+                await coordinator.api_request("GET", "/start/index/0")
+        except Exception as e:
+            _LOGGER.error(f"Failed to start timer: {e}")
+            raise
     
     async def handle_pause(call: ServiceCall) -> None:
         """Handle pause service."""
-        await coordinator.api_request("GET", "/pause")
+        try:
+            await coordinator.api_request("GET", "/pause")
+        except Exception as e:
+            _LOGGER.error(f"Failed to pause timer: {e}")
+            raise
     
     async def handle_stop(call: ServiceCall) -> None:
         """Handle stop service."""
-        await coordinator.api_request("GET", "/stop")
+        try:
+            await coordinator.api_request("GET", "/stop")
+        except Exception as e:
+            _LOGGER.error(f"Failed to stop timer: {e}")
+            raise
     
     async def handle_reload(call: ServiceCall) -> None:
         """Handle reload service."""
-        await coordinator.api_request("GET", "/reload")
+        try:
+            await coordinator.api_request("GET", "/reload")
+        except Exception as e:
+            _LOGGER.error(f"Failed to reload: {e}")
+            raise
     
     async def handle_roll(call: ServiceCall) -> None:
         """Handle roll service."""
-        await coordinator.api_request("GET", "/roll")
+        try:
+            await coordinator.api_request("GET", "/roll")
+        except Exception as e:
+            _LOGGER.error(f"Failed to activate roll mode: {e}")
+            raise
     
     async def handle_load_event(call: ServiceCall) -> None:
         """Handle load event service."""
         event_id = call.data.get(ATTR_EVENT_ID)
-        await coordinator.api_request("GET", f"/load/id/{event_id}")
+        try:
+            await coordinator.api_request("GET", f"/load/id/{event_id}")
+        except Exception as e:
+            _LOGGER.error(f"Failed to load event {event_id}: {e}")
+            raise
     
     async def handle_start_event(call: ServiceCall) -> None:
         """Handle start event service."""
         event_id = call.data.get(ATTR_EVENT_ID)
-        await coordinator.api_request("GET", f"/start/id/{event_id}")
+        try:
+            await coordinator.api_request("GET", f"/start/id/{event_id}")
+        except Exception as e:
+            _LOGGER.error(f"Failed to start event {event_id}: {e}")
+            raise
     
     async def handle_add_time(call: ServiceCall) -> None:
         """Handle add time service."""
@@ -109,36 +143,65 @@ async def _async_register_services(hass: HomeAssistant, coordinator) -> None:
         direction = call.data.get(ATTR_DIRECTION, "add")
         # Convert milliseconds to seconds for the API
         time_seconds = time // 1000
-        if direction in ["remove", "subtract"]:
-            await coordinator.api_request("GET", f"/addtime/remove/{time_seconds}")
-        else:
-            await coordinator.api_request("GET", f"/addtime/add/{time_seconds}")
+        try:
+            if direction in ["remove", "subtract"]:
+                await coordinator.api_request("GET", f"/addtime/remove/{time_seconds}")
+            else:
+                await coordinator.api_request("GET", f"/addtime/add/{time_seconds}")
+        except Exception as e:
+            _LOGGER.error(f"Failed to add/remove time: {e}")
+            raise
     
     async def handle_load_event_index(call: ServiceCall) -> None:
         """Handle load event by index service."""
         index = call.data.get(ATTR_EVENT_INDEX)
-        await coordinator.api_request("GET", f"/load/index/{index}")
+        try:
+            # Ontime uses 0-based index
+            await coordinator.api_request("GET", f"/load/index/{index - 1}")
+        except Exception as e:
+            _LOGGER.error(f"Failed to load event at index {index}: {e}")
+            raise
     
     async def handle_load_event_cue(call: ServiceCall) -> None:
         """Handle load event by cue service."""
         cue = call.data.get(ATTR_EVENT_CUE)
-        await coordinator.api_request("GET", f"/load/cue/{cue}")
+        try:
+            await coordinator.api_request("GET", f"/load/cue/{cue}")
+        except Exception as e:
+            _LOGGER.error(f"Failed to load event with cue {cue}: {e}")
+            raise
     
     async def handle_next(call: ServiceCall) -> None:
         """Handle next event service."""
-        await coordinator.api_request("GET", "/start/next")
+        try:
+            await coordinator.api_request("GET", "/start/next")
+        except Exception as e:
+            _LOGGER.error(f"Failed to start next event: {e}")
+            raise
     
     async def handle_previous(call: ServiceCall) -> None:
         """Handle previous event service."""
-        await coordinator.api_request("GET", "/start/previous")
+        try:
+            await coordinator.api_request("GET", "/start/previous")
+        except Exception as e:
+            _LOGGER.error(f"Failed to start previous event: {e}")
+            raise
     
     async def handle_load_next(call: ServiceCall) -> None:
         """Handle load next event service."""
-        await coordinator.api_request("GET", "/load/next")
+        try:
+            await coordinator.api_request("GET", "/load/next")
+        except Exception as e:
+            _LOGGER.error(f"Failed to load next event: {e}")
+            raise
     
     async def handle_load_previous(call: ServiceCall) -> None:
         """Handle load previous event service."""
-        await coordinator.api_request("GET", "/load/previous")
+        try:
+            await coordinator.api_request("GET", "/load/previous")
+        except Exception as e:
+            _LOGGER.error(f"Failed to load previous event: {e}")
+            raise
     
     # Check if services are already registered
     if not hass.services.has_service(DOMAIN, SERVICE_START):
@@ -339,20 +402,45 @@ class OntimeDataUpdateCoordinator(DataUpdateCoordinator):
                 else:
                     raise ValueError(f"Unsupported method: {method}")
                 
-                # Akzeptiere sowohl 200 als auch 202 Status codes
-                if response.status not in [200, 202]:
-                    _LOGGER.error(f"API request failed with status {response.status}")
-                    raise aiohttp.ClientError(f"Status {response.status}")
+                # Akzeptiere verschiedene Success Status codes
+                # 200 OK, 202 Accepted, 204 No Content
+                if response.status in [200, 202, 204]:
+                    # Ontime API returns JSON with payload wrapper
+                    if response.content_length and response.content_length > 0:
+                        result = await response.json()
+                        return result.get("payload", result)
+                    return {"success": True}
                 
-                # Ontime API returns JSON with payload wrapper
-                if response.content_length and response.content_length > 0:
-                    result = await response.json()
-                    return result.get("payload", result)
-                return None
+                # Bei 500 Fehler: Detaillierte Fehlermeldung
+                elif response.status == 500:
+                    error_text = await response.text()
+                    _LOGGER.error(f"Ontime API error 500 for {endpoint}: {error_text}")
+                    
+                    # Spezielle Behandlung für Start wenn kein Event geladen
+                    if "/start" in endpoint and "no event" in error_text.lower():
+                        _LOGGER.warning("Cannot start: No event loaded. Load an event first.")
+                        raise ValueError("No event loaded. Please load an event first.")
+                    
+                    raise aiohttp.ClientError(f"Ontime server error: {error_text[:200]}")
                 
+                # Bei 400 Bad Request
+                elif response.status == 400:
+                    error_text = await response.text()
+                    _LOGGER.warning(f"Bad request to {endpoint}: {error_text}")
+                    raise ValueError(f"Invalid request: {error_text[:200]}")
+                
+                # Andere Fehler
+                else:
+                    error_text = await response.text()
+                    _LOGGER.error(f"API request failed with status {response.status}: {error_text[:200]}")
+                    raise aiohttp.ClientError(f"Status {response.status}: {error_text[:200]}")
+                
+        except asyncio.TimeoutError:
+            _LOGGER.error(f"Timeout making API request to {endpoint}")
+            raise
         except aiohttp.ClientError as err:
             _LOGGER.error(f"Error making API request to {endpoint}: {err}")
             raise
         except Exception as err:
-            _LOGGER.error(f"Unexpected error in API request: {err}")
+            _LOGGER.error(f"Unexpected error in API request to {endpoint}: {err}")
             raise
