@@ -1,3 +1,19 @@
+next:
+  name: Next Event
+  description: Start the next event in the rundown
+
+previous:
+  name: Previous Event
+  description: Start the previous event in the rundown
+
+load_next:
+  name: Load Next Event
+  description: Load (but don't start) the next event in the rundown
+
+load_previous:
+  name: Load Previous Event
+  description: Load (but don't start) the previous event in the rundown
+
 start:
   name: Start Timer
   description: Start the Ontime timer
