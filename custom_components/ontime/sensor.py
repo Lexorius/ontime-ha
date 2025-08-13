@@ -34,6 +34,7 @@ async def async_setup_entry(
         OntimeTimerSensor(coordinator, entry),
         OntimeStateSensor(coordinator, entry),
         OntimeCurrentEventSensor(coordinator, entry),
+        OntimeNextEventSensor(coordinator, entry),  # NEU!
         OntimeOvertimeSensor(coordinator, entry),
         OntimeElapsedSensor(coordinator, entry),
         OntimeExpectedEndSensor(coordinator, entry),
@@ -182,6 +183,93 @@ class OntimeCurrentEventSensor(OntimeBaseSensor):
                 "timer_type": event.get("timerType"),
             }
         return {}
+
+
+class OntimeNextEventSensor(OntimeBaseSensor):
+    """Sensor for next event information."""
+    
+    def __init__(self, coordinator, entry):
+        """Initialize the sensor."""
+        super().__init__(coordinator, entry)
+        self._attr_unique_id = f"{entry.entry_id}_next_event"
+        self._attr_name = "Ontime Next Event"
+        self._attr_icon = "mdi:skip-next"
+    
+    @property
+    def native_value(self):
+        """Return the state of the sensor."""
+        if self.coordinator.data and "next_event" in self.coordinator.data:
+            event = self.coordinator.data["next_event"]
+            if event:
+                return event.get("title", "Unknown Event")
+        
+        # Try eventNext from runtime data
+        if self.coordinator.data and "runtime" in self.coordinator.data:
+            runtime = self.coordinator.data["runtime"]
+            if "eventNext" in runtime and runtime["eventNext"]:
+                return runtime["eventNext"].get("title", "Unknown Event")
+        
+        return "No Next Event"
+    
+    @property
+    def extra_state_attributes(self):
+        """Return extra state attributes."""
+        event = None
+        public_event = None
+        
+        if self.coordinator.data and "next_event" in self.coordinator.data:
+            event = self.coordinator.data["next_event"]
+        elif self.coordinator.data and "runtime" in self.coordinator.data:
+            runtime = self.coordinator.data["runtime"]
+            if "eventNext" in runtime:
+                event = runtime["eventNext"]
+        
+        # Get public next event if available
+        if self.coordinator.data and "public_next_event" in self.coordinator.data:
+            public_event = self.coordinator.data["public_next_event"]
+        elif self.coordinator.data and "runtime" in self.coordinator.data:
+            runtime = self.coordinator.data["runtime"]
+            if "publicEventNext" in runtime:
+                public_event = runtime["publicEventNext"]
+        
+        attrs = {}
+        
+        if event:
+            attrs.update({
+                "event_id": event.get("id"),
+                "cue": event.get("cue"),
+                "note": event.get("note"),
+                "colour": event.get("colour"),
+                "is_public": event.get("isPublic"),
+                "skip": event.get("skip"),
+                "time_start": event.get("timeStart"),
+                "time_end": event.get("timeEnd"),
+                "duration": event.get("duration"),
+                "timer_type": event.get("timerType"),
+            })
+            
+            # Calculate time until next event
+            if event.get("timeStart"):
+                try:
+                    # timeStart is in milliseconds since midnight
+                    import datetime
+                    now = datetime.datetime.now()
+                    midnight = now.replace(hour=0, minute=0, second=0, microsecond=0)
+                    event_time = midnight + datetime.timedelta(milliseconds=event["timeStart"])
+                    
+                    if event_time > now:
+                        time_until = (event_time - now).total_seconds()
+                        attrs["seconds_until_start"] = int(time_until)
+                        attrs["time_until_start"] = str(datetime.timedelta(seconds=int(time_until)))
+                except:
+                    pass
+        
+        # Add public event info if different
+        if public_event and public_event != event:
+            attrs["public_next_title"] = public_event.get("title", "Unknown")
+            attrs["public_next_time_start"] = public_event.get("timeStart")
+        
+        return attrs
 
 
 class OntimeOvertimeSensor(OntimeBaseSensor):
