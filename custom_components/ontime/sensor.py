@@ -75,7 +75,11 @@ class OntimeTimerSensor(OntimeBaseSensor):
     def native_value(self):
         """Return the state of the sensor."""
         if self.coordinator.data and "timer" in self.coordinator.data:
-            return self.coordinator.data["timer"].get("current")
+            timer_value = self.coordinator.data["timer"].get("current")
+            # Return None if timer is null/None, 0 if it's actually 0
+            if timer_value is None:
+                return None
+            return timer_value
         return None
     
     @property
@@ -83,15 +87,25 @@ class OntimeTimerSensor(OntimeBaseSensor):
         """Return extra state attributes."""
         if self.coordinator.data and "timer" in self.coordinator.data:
             timer_data = self.coordinator.data["timer"]
-            return {
-                "duration": timer_data.get("duration"),
-                "elapsed": timer_data.get("elapsed"),
-                "expected_finish": timer_data.get("expectedFinish"),
-                "started_at": timer_data.get("startedAt"),
-                "finished_at": timer_data.get("finishedAt"),
-                "phase": timer_data.get("phase"),
-                "playback": timer_data.get("playback"),
-            }
+            attrs = {}
+            
+            # Safely add attributes, checking for None values
+            if timer_data.get("duration") is not None:
+                attrs["duration"] = timer_data["duration"]
+            if timer_data.get("elapsed") is not None:
+                attrs["elapsed"] = timer_data["elapsed"]
+            if timer_data.get("expectedFinish") is not None:
+                attrs["expected_finish"] = timer_data["expectedFinish"]
+            if timer_data.get("startedAt") is not None:
+                attrs["started_at"] = timer_data["startedAt"]
+            if timer_data.get("finishedAt") is not None:
+                attrs["finished_at"] = timer_data["finishedAt"]
+            if timer_data.get("phase"):
+                attrs["phase"] = timer_data["phase"]
+            if timer_data.get("playback"):
+                attrs["playback"] = timer_data["playback"]
+                
+            return attrs
         return {}
 
 
@@ -252,17 +266,17 @@ class OntimeNextEventSensor(OntimeBaseSensor):
             if event.get("timeStart"):
                 try:
                     # timeStart is in milliseconds since midnight
-                    import datetime
-                    now = datetime.datetime.now()
+                    from datetime import datetime, timezone, timedelta
+                    now = datetime.now(tz=timezone.utc)
                     midnight = now.replace(hour=0, minute=0, second=0, microsecond=0)
-                    event_time = midnight + datetime.timedelta(milliseconds=event["timeStart"])
+                    event_time = midnight + timedelta(milliseconds=event["timeStart"])
                     
                     if event_time > now:
                         time_until = (event_time - now).total_seconds()
                         attrs["seconds_until_start"] = int(time_until)
-                        attrs["time_until_start"] = str(datetime.timedelta(seconds=int(time_until)))
-                except:
-                    pass
+                        attrs["time_until_start"] = str(timedelta(seconds=int(time_until)))
+                except Exception as e:
+                    _LOGGER.debug(f"Error calculating time until event: {e}")
         
         # Add public event info if different
         if public_event and public_event != event:
@@ -344,7 +358,11 @@ class OntimeElapsedSensor(OntimeBaseSensor):
     def native_value(self):
         """Return the elapsed time."""
         if self.coordinator.data and "timer" in self.coordinator.data:
-            return self.coordinator.data["timer"].get("elapsed")
+            elapsed = self.coordinator.data["timer"].get("elapsed")
+            # Return None if elapsed is null/None, 0 if it's actually 0
+            if elapsed is None:
+                return None
+            return elapsed
         return None
 
 
@@ -366,7 +384,11 @@ class OntimeExpectedEndSensor(OntimeBaseSensor):
             if expected_finish:
                 try:
                     # Ontime returns milliseconds timestamp
-                    return datetime.fromtimestamp(expected_finish / 1000)
-                except (ValueError, TypeError, OverflowError):
-                    _LOGGER.debug(f"Invalid timestamp: {expected_finish}")
+                    # Aber es könnte auch None oder 0 sein bei gestopptem Timer
+                    if expected_finish > 0:
+                        from datetime import datetime, timezone
+                        # Erstelle timezone-aware datetime
+                        return datetime.fromtimestamp(expected_finish / 1000, tz=timezone.utc)
+                except (ValueError, TypeError, OverflowError) as e:
+                    _LOGGER.debug(f"Invalid timestamp {expected_finish}: {e}")
         return None
