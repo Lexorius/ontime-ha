@@ -31,6 +31,8 @@ from .const import (
     SERVICE_ADD_TIME,
     SERVICE_LOAD_EVENT_INDEX,
     SERVICE_LOAD_EVENT_CUE,
+    SERVICE_NEXT,
+    SERVICE_PREVIOUS,
     ATTR_EVENT_ID,
     ATTR_EVENT_INDEX,
     ATTR_EVENT_CUE,
@@ -122,6 +124,22 @@ async def _async_register_services(hass: HomeAssistant, coordinator) -> None:
         cue = call.data.get(ATTR_EVENT_CUE)
         await coordinator.api_request("GET", f"/load/cue/{cue}")
     
+    async def handle_next(call: ServiceCall) -> None:
+        """Handle next event service."""
+        await coordinator.api_request("GET", "/start/next")
+    
+    async def handle_previous(call: ServiceCall) -> None:
+        """Handle previous event service."""
+        await coordinator.api_request("GET", "/start/previous")
+    
+    async def handle_load_next(call: ServiceCall) -> None:
+        """Handle load next event service."""
+        await coordinator.api_request("GET", "/load/next")
+    
+    async def handle_load_previous(call: ServiceCall) -> None:
+        """Handle load previous event service."""
+        await coordinator.api_request("GET", "/load/previous")
+    
     # Check if services are already registered
     if not hass.services.has_service(DOMAIN, SERVICE_START):
         hass.services.async_register(DOMAIN, SERVICE_START, handle_start)
@@ -129,6 +147,10 @@ async def _async_register_services(hass: HomeAssistant, coordinator) -> None:
         hass.services.async_register(DOMAIN, SERVICE_STOP, handle_stop)
         hass.services.async_register(DOMAIN, SERVICE_RELOAD, handle_reload)
         hass.services.async_register(DOMAIN, SERVICE_ROLL, handle_roll)
+        hass.services.async_register(DOMAIN, SERVICE_NEXT, handle_next)
+        hass.services.async_register(DOMAIN, SERVICE_PREVIOUS, handle_previous)
+        hass.services.async_register(DOMAIN, "load_next", handle_load_next)
+        hass.services.async_register(DOMAIN, "load_previous", handle_load_previous)
         
         hass.services.async_register(
             DOMAIN, 
