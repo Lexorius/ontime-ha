@@ -12,11 +12,11 @@ stop:
 
 reload:
   name: Reload
-  description: Reload the Ontime rundown
+  description: Reload the current event
 
 roll:
   name: Roll
-  description: Roll to the next event
+  description: Activate roll mode (sync to schedule)
 
 load_event:
   name: Load Event
@@ -26,6 +26,7 @@ load_event:
       name: Event ID
       description: The ID of the event to load
       required: true
+      example: "abc123"
       selector:
         text:
 
@@ -37,6 +38,7 @@ start_event:
       name: Event ID
       description: The ID of the event to start
       required: true
+      example: "abc123"
       selector:
         text:
 
@@ -46,24 +48,25 @@ add_time:
   fields:
     time:
       name: Time
-      description: Time to add in milliseconds (negative to subtract)
+      description: Time to add in milliseconds (use negative values to subtract)
       required: true
+      example: 60000
       selector:
         number:
           min: -3600000
           max: 3600000
+          unit_of_measurement: "ms"
     direction:
       name: Direction
-      description: Which timer property to modify
+      description: Which action to perform (add or remove time)
       required: false
-      default: both
+      default: add
       selector:
         select:
           options:
-            - both
-            - start
-            - duration
-            - end
+            - add
+            - remove
+            - subtract
 
 load_event_index:
   name: Load Event by Index
@@ -71,12 +74,14 @@ load_event_index:
   fields:
     event_index:
       name: Event Index
-      description: The index of the event to load
+      description: The index of the event to load (1-based)
       required: true
+      example: 1
       selector:
         number:
-          min: 0
+          min: 1
           max: 1000
+          mode: box
 
 load_event_cue:
   name: Load Event by Cue
@@ -86,5 +91,6 @@ load_event_cue:
       name: Event Cue
       description: The cue name of the event to load
       required: true
+      example: "Q1"
       selector:
         text:
