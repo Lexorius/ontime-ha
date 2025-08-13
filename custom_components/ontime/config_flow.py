@@ -1,4 +1,3 @@
-"""Config flow for Ontime integration."""
 from __future__ import annotations
 
 import logging
@@ -35,9 +34,9 @@ class OntimeHub:
         self.host = host
         self.port = port
         self.session = session
-        # WICHTIG: Kein /api/v1 Prefix - Ontime nutzt direkte Pfade!
         self.base_url = f"http://{host}:{port}"
         self.info = {}
+        _LOGGER.info(f"OntimeHub initialized with base_url: {self.base_url}")
 
     async def authenticate(self) -> bool:
         """Test if we can authenticate with the host."""
@@ -45,77 +44,99 @@ class OntimeHub:
 
     async def _test_connection(self) -> bool:
         """Test connection to Ontime API."""
-        try:
-            # Teste die korrekte Ontime API
-            test_endpoints = [
-                "/api/version",        # Version endpoint
-                "/api/poll",           # Poll endpoint für runtime data
-            ]
+        _LOGGER.info(f"Starting connection test to {self.base_url}")
+        
+        # Teste die korrekte Ontime API
+        test_endpoints = [
+            "/api/version",
+            "/api/poll",
+        ]
+        
+        for endpoint in test_endpoints:
+            full_url = f"{self.base_url}{endpoint}"
+            _LOGGER.info(f"Testing endpoint: {full_url}")
             
-            for endpoint in test_endpoints:
-                try:
-                    _LOGGER.debug(f"Testing endpoint: {self.base_url}{endpoint}")
-                    async with self.session.get(
-                        f"{self.base_url}{endpoint}",
-                        timeout=aiohttp.ClientTimeout(total=5)
-                    ) as response:
-                        if response.status == 200:
+            try:
+                async with self.session.get(
+                    full_url,
+                    timeout=aiohttp.ClientTimeout(total=10),
+                    headers={"Accept": "application/json"}
+                ) as response:
+                    _LOGGER.info(f"Response status from {endpoint}: {response.status}")
+                    
+                    if response.status == 200:
+                        try:
                             data = await response.json()
+                            _LOGGER.info(f"Response data from {endpoint}: {data}")
+                            
                             # Ontime API returns data in payload wrapper
                             if "payload" in data:
                                 if "version" in endpoint:
                                     self.info = {"version": data["payload"]}
-                                _LOGGER.info(f"Successfully connected to Ontime using endpoint: {endpoint}")
+                                _LOGGER.info(f"Successfully connected to Ontime! Version: {data.get('payload', 'unknown')}")
                                 return True
-                except Exception as e:
-                    _LOGGER.debug(f"Endpoint {endpoint} failed: {e}")
-                    continue
-            
-            return False
-            
-        except Exception as err:
-            _LOGGER.error(f"Unexpected error testing connection: {err}")
-            return False
+                            else:
+                                _LOGGER.warning(f"No 'payload' in response from {endpoint}")
+                        except Exception as json_err:
+                            _LOGGER.error(f"Error parsing JSON from {endpoint}: {json_err}")
+                            text = await response.text()
+                            _LOGGER.error(f"Response text: {text}")
+                    else:
+                        text = await response.text()
+                        _LOGGER.warning(f"Non-200 response from {endpoint}: {response.status}, text: {text}")
+                        
+            except aiohttp.ClientConnectorError as conn_err:
+                _LOGGER.error(f"Connection error to {full_url}: {conn_err}")
+            except aiohttp.ClientError as client_err:
+                _LOGGER.error(f"Client error for {full_url}: {client_err}")
+            except Exception as e:
+                _LOGGER.error(f"Unexpected error for {full_url}: {type(e).__name__}: {e}")
+        
+        _LOGGER.error(f"All connection attempts failed for {self.base_url}")
+        return False
 
     async def get_info(self) -> dict:
         """Get Ontime server information."""
         try:
             # Get version info
+            url = f"{self.base_url}/api/version"
+            _LOGGER.info(f"Getting version info from: {url}")
+            
             async with self.session.get(
-                f"{self.base_url}/api/version",
+                url,
                 timeout=aiohttp.ClientTimeout(total=10)
             ) as response:
                 if response.status == 200:
                     data = await response.json()
-                    return {"version": data.get("payload", "Unknown")}
-                return {}
+                    version = data.get("payload", "Unknown")
+                    _LOGGER.info(f"Got version: {version}")
+                    return {"version": version}
+                else:
+                    _LOGGER.error(f"Failed to get version, status: {response.status}")
+                    return {}
         except Exception as err:
             _LOGGER.error(f"Error getting info: {err}")
             return {}
 
 
 async def validate_input(hass: HomeAssistant, data: dict[str, Any]) -> dict[str, Any]:
-    """Validate the user input allows us to connect.
-
-    Data has the keys from STEP_USER_DATA_SCHEMA with values provided by the user.
-    """
+    """Validate the user input allows us to connect."""
+    _LOGGER.info(f"Validating input - Host: {data[CONF_HOST]}, Port: {data[CONF_PORT]}")
+    
     session = async_get_clientsession(hass)
     hub = OntimeHub(data[CONF_HOST], data[CONF_PORT], session)
 
     if not await hub.authenticate():
+        _LOGGER.error(f"Authentication failed for {data[CONF_HOST]}:{data[CONF_PORT]}")
         raise CannotConnect
 
     # Get server info for the title
     info = await hub.get_info()
+    _LOGGER.info(f"Validation successful. Info: {info}")
     
-    # Speichere den API prefix in den Daten
-    api_prefix = getattr(hub, 'api_prefix', '/api')
-    
-    # Return info that you want to store in the config entry.
     return {
         "title": f"Ontime {info.get('version', 'Server')}",
-        "info": info,
-        "api_prefix": api_prefix
+        "info": info
     }
 
 
@@ -129,11 +150,14 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         """Initialize the config flow."""
         self._errors = {}
         self._data = {}
+        _LOGGER.info("ConfigFlow initialized")
 
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
     ) -> FlowResult:
         """Handle the initial step."""
+        _LOGGER.info(f"async_step_user called with input: {user_input}")
+        
         if user_input is None:
             return self.async_show_form(
                 step_id="user",
@@ -145,12 +169,15 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
         try:
             info = await validate_input(self.hass, user_input)
+            _LOGGER.info(f"Validation successful: {info}")
         except CannotConnect:
+            _LOGGER.error("Cannot connect error")
             errors["base"] = "cannot_connect"
         except InvalidAuth:
+            _LOGGER.error("Invalid auth error")
             errors["base"] = "invalid_auth"
-        except Exception:  # pylint: disable=broad-except
-            _LOGGER.exception("Unexpected exception")
+        except Exception as ex:
+            _LOGGER.exception(f"Unexpected exception in config flow: {ex}")
             errors["base"] = "unknown"
         else:
             # Ensure we're not adding the same server twice
@@ -158,10 +185,8 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             await self.async_set_unique_id(unique_id)
             self._abort_if_unique_id_configured()
 
-            # Füge den API prefix zu den config daten hinzu
-            user_input["api_prefix"] = info.get("api_prefix", "/api")
-
             # Create the config entry
+            _LOGGER.info(f"Creating entry with title: {info['title']}")
             return self.async_create_entry(
                 title=info["title"],
                 data=user_input
@@ -176,54 +201,6 @@ class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     async def async_step_import(self, user_input: dict[str, Any]) -> FlowResult:
         """Handle import from configuration.yaml."""
         return await self.async_step_user(user_input)
-
-    async def async_step_reconfigure(self, user_input: dict[str, Any] | None = None) -> FlowResult:
-        """Handle a reconfiguration flow initialized by the user."""
-        entry = self.hass.config_entries.async_get_entry(self.context["entry_id"])
-        
-        if user_input is None:
-            return self.async_show_form(
-                step_id="reconfigure",
-                data_schema=vol.Schema(
-                    {
-                        vol.Required(CONF_HOST, default=entry.data.get(CONF_HOST)): str,
-                        vol.Required(CONF_PORT, default=entry.data.get(CONF_PORT, DEFAULT_PORT)): int,
-                    }
-                ),
-            )
-
-        errors = {}
-
-        try:
-            info = await validate_input(self.hass, user_input)
-        except CannotConnect:
-            errors["base"] = "cannot_connect"
-        except InvalidAuth:
-            errors["base"] = "invalid_auth"
-        except Exception:  # pylint: disable=broad-except
-            _LOGGER.exception("Unexpected exception")
-            errors["base"] = "unknown"
-        else:
-            # Füge den API prefix zu den config daten hinzu
-            user_input["api_prefix"] = info.get("api_prefix", "/api")
-            
-            # Update the existing entry
-            self.hass.config_entries.async_update_entry(
-                entry, data=user_input, title=info["title"]
-            )
-            await self.hass.config_entries.async_reload(entry.entry_id)
-            return self.async_abort(reason="reconfigure_successful")
-
-        return self.async_show_form(
-            step_id="reconfigure",
-            data_schema=vol.Schema(
-                {
-                    vol.Required(CONF_HOST, default=user_input[CONF_HOST]): str,
-                    vol.Required(CONF_PORT, default=user_input[CONF_PORT]): int,
-                }
-            ),
-            errors=errors,
-        )
 
 
 class CannotConnect(HomeAssistantError):
