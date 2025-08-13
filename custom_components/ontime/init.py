@@ -214,40 +214,46 @@ class OntimeDataUpdateCoordinator(DataUpdateCoordinator):
         try:
             # Get runtime state using /api/poll endpoint
             poll_response = await self.session.get(f"{self.base_url}/poll")
-            poll_response.raise_for_status()
-            poll_data = await poll_response.json()
             
-            # Extract runtime data from payload
-            if "payload" in poll_data:
-                runtime_data = poll_data["payload"]
-                data["runtime"] = runtime_data
+            # Akzeptiere sowohl 200 als auch 202 Status
+            if poll_response.status in [200, 202]:
+                poll_data = await poll_response.json()
                 
-                # Extract timer information
-                if "timer" in runtime_data:
-                    data["timer"] = runtime_data["timer"]
-                
-                # Extract current event information
-                if "eventNow" in runtime_data:
-                    data["current_event"] = runtime_data["eventNow"]
-                elif "currentEvent" in runtime_data:
-                    data["current_event"] = runtime_data["currentEvent"]
-                
-                # Check for negative timer (overtime)
-                if "timer" in runtime_data and runtime_data["timer"]:
-                    timer_data = runtime_data["timer"]
-                    current_time = timer_data.get("current", 0)
-                    data["is_overtime"] = current_time < 0
-                    data["overtime_seconds"] = abs(current_time) // 1000 if current_time < 0 else 0
-                
-                # Extract playback state
-                if "playback" in runtime_data:
-                    data["playback"] = runtime_data["playback"]
+                # Extract runtime data from payload
+                if "payload" in poll_data:
+                    runtime_data = poll_data["payload"]
+                    data["runtime"] = runtime_data
+                    
+                    # Extract timer information
+                    if "timer" in runtime_data:
+                        data["timer"] = runtime_data["timer"]
+                    
+                    # Extract current event information
+                    if "eventNow" in runtime_data:
+                        data["current_event"] = runtime_data["eventNow"]
+                    elif "currentEvent" in runtime_data:
+                        data["current_event"] = runtime_data["currentEvent"]
+                    
+                    # Check for negative timer (overtime)
+                    if "timer" in runtime_data and runtime_data["timer"]:
+                        timer_data = runtime_data["timer"]
+                        current_time = timer_data.get("current", 0)
+                        data["is_overtime"] = current_time < 0 if current_time is not None else False
+                        data["overtime_seconds"] = abs(current_time) // 1000 if current_time and current_time < 0 else 0
+                    
+                    # Extract playback state
+                    if "playback" in runtime_data:
+                        data["playback"] = runtime_data["playback"]
+                    elif "timer" in runtime_data and "playback" in runtime_data["timer"]:
+                        data["playback"] = runtime_data["timer"]["playback"]
+            else:
+                _LOGGER.warning(f"Unexpected status code from poll endpoint: {poll_response.status}")
             
             # Try to get additional data
             try:
                 # Get rundown data if needed
                 rundown_response = await self.session.get(f"{self.base_url}/data/rundown")
-                if rundown_response.status == 200:
+                if rundown_response.status in [200, 202]:
                     rundown_data = await rundown_response.json()
                     if "payload" in rundown_data:
                         data["rundown"] = rundown_data["payload"]
@@ -277,7 +283,10 @@ class OntimeDataUpdateCoordinator(DataUpdateCoordinator):
                 else:
                     raise ValueError(f"Unsupported method: {method}")
                 
-                response.raise_for_status()
+                # Akzeptiere sowohl 200 als auch 202 Status codes
+                if response.status not in [200, 202]:
+                    _LOGGER.error(f"API request failed with status {response.status}")
+                    raise aiohttp.ClientError(f"Status {response.status}")
                 
                 # Ontime API returns JSON with payload wrapper
                 if response.content_length and response.content_length > 0:
